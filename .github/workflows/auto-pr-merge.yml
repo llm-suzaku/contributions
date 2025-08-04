@@ -1,0 +1,47 @@
+name: Auto-merge PRs
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+    paths:
+      - 'TeamMembers.md'
+      - 'src/**'   
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 変更ファイルがTeamMembers.mdまたはsrcディレクトリだけかをチェック
+      - name: Check changed files
+        id: changed_files
+        run: |
+          files=$(jq -r '.pull_request.changed_files' "$GITHUB_EVENT_PATH")
+          only_valid=true
+          # 判定条件は必要に応じてカスタマイズ
+          # 例: 全てContributors.mdかyour-directory配下ならok
+          for f in $(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}); do
+            if [[ ! "$f" =~ ^(Contributors.md|your-directory/) ]]; then
+              only_valid=false
+            fi
+          done
+          echo "only_valid=$only_valid" >> $GITHUB_ENV
+
+      # 条件に合えばマージ
+      - name: Merge PR
+        if: env.only_valid == 'true'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              merge_method: 'squash'
+            })
+
